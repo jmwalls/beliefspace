@@ -53,6 +53,34 @@ def test_hessian ():
         print h_true
 
 
+def func2 (x):
+    xd = np.array ([3., 5.])
+    Q = np.array ([[1., 2.], [2., 1.]])
+    return (x - xd).T.dot (Q).dot (x - xd)
+
+def gfunc2 (x):
+    xd = np.array ([3., 5.])
+    Q = np.array ([[1., 2.], [2., 1.]])
+    return 2.*Q.dot (x - xd)
+
+def hfunc2 (x):
+    Q = np.array ([[1., 2.], [2., 1.]])
+    return 2.*Q
+
+def test_hessian2 ():
+    print 'testing hessian on quadratic function...'
+
+    x = np.array ([1., -1.])
+    c = func2 (x)
+    g_approx, h_approx = approx_jacobian_hessian (x, func2, 1e-6, c)
+    g_true, h_true = gfunc2 (x), hfunc2 (x)
+
+    print g_approx
+    print h_approx
+    print g_true
+    print h_true
+
+
 def test_beliefs ():
     print 'testing belief packing/unpacking...',
 
@@ -78,5 +106,6 @@ if __name__ == '__main__':
     test_jacobian ()
     test_hessian ()
     test_beliefs ()
+    test_hessian2 ()
 
     sys.exit (0)
