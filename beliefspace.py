@@ -196,16 +196,17 @@ class Belief_ilqg (object):
         return np.asarray (x), np.asarray (P)
 
     def noise_control (self, uk):
-        return np.array ([[uk[0]**2., 0.],
-                          [0., uk[1]**2.]])
+        #return np.array ([[uk[0]**2., 0.],
+        #                  [0., uk[1]**2.]])
+        return np.array ([[uk[0], 0.],
+                          [0., uk[1]]])
 
     def _cost_stage (self, bk, uk):
         c_control = uk.T.dot (self.Rc).dot (uk)
 
         xk,Pk = belief_unpack (bk)
-        #c_belief = np.trace (Pk.dot (self.Qc))
-        c_belief = 0.
-
+        c_belief = np.trace (Pk.dot (self.Qc))
+        #c_belief = 0.
         c_collision = 0.
         return c_control + c_belief + c_collision
 
@@ -215,8 +216,8 @@ class Belief_ilqg (object):
     def _cost_terminal (self, bk):
         xk,Pk = belief_unpack (bk)
         c_state = (xk - self.xf).T.dot (self.Ql).dot (xk - self.xf)
-        #c_belief = np.trace (Pk.dot (self.Ql))
-        c_belief = 0.
+        c_belief = np.trace (Pk.dot (self.Ql))
+        #c_belief = 0.
         return c_state + c_belief
 
     def _dynamics_g (self, bk, uk):
@@ -240,7 +241,8 @@ class Belief_ilqg (object):
         Nk = self.noise_environment (xk[0], xk[1])*np.eye (2)
         Gk = Pk + Mk.dot (Mk.T)
         Kk = Gk.dot (np.linalg.inv (Gk + Nk.dot (Nk.T)))
-        Pkn = Gk - Kk.dot (Gk)
+        #Pkn = Gk - Kk.dot (Gk)
+        Pkn = (np.eye (NSTATE) - Kk).dot (Gk)
 
         return belief_pack (xkn, Pkn)
 
@@ -366,18 +368,16 @@ class Belief_ilqg (object):
         #    for Gkii in Gki])
         #Ek = Pk + Fk.T.dot (Sk).dot (Gk) + np.sum ([Fkii.T.dot (Sk).dot (Gkii)
         #    for Fkii, Gkii in zip (Fki, Gki)])
-
         #ck = qk + Fk.T.dot (sk) + np.sum ([Fkii.T.dot (Sk).dot (ebarkii) 
         #    for Fkii,ebarkii in zip (Fki, ebarki)])
         #dk = rk + Gk.T.dot (sk) + np.sum ([Gkii.T.dot (Sk).dot (ebarkii)
         #    for Gkii,ebarkii in zip (Gki, ebarki)])
-        #ek = cbark + ssk + np.sum ([ebarkii.T.dot (Sk).dot (ebarkii)
+        #ek = cbark + ssk + (1./2)*np.sum ([ebarkii.T.dot (Sk).dot (ebarkii)
         #    for ebarkii in ebarki])
 
         Ck = Qk + Fk.T.dot (Sk).dot (Fk)
         Dk = Rk + Gk.T.dot (Sk).dot (Gk)
         Ek = Pk + Fk.T.dot (Sk).dot (Gk)
-
         ck = qk + Fk.T.dot (sk)
         dk = rk + Gk.T.dot (sk)
         ek = cbark + ssk
@@ -391,6 +391,45 @@ class Belief_ilqg (object):
         ssk = ek - (1./2)*dk.T.dot (Dinv).dot (dk)
 
         return Lk, lk, Sk, sk, ssk
+
+    def _compute_approximate_cost (self, bbar, ubar, L, l):
+        # quadratize final state cost
+        ssk = self._cost_terminal (bbar[:,-1])
+        sk, Sk = approx_jacobian_hessian (bbar[:,-1],
+                self._cost_terminal, 1e-6, ssk)
+
+        for k in xrange (self.nsteps-2, -1, -1):
+            bk, uk = bbar[:,k], ubar[:,k]
+
+            # 1. linearize dynamics about nominal
+            vbar = np.hstack ((bk, uk))
+            F = approx_jacobian (vbar, self._dynamics_vector_g, 1e-6, None)
+            Fk = F[:,:NBEL]
+            Gk = F[:,NBEL:]
+
+            Fki, Gki, ebarki = self._linearize_dynamics_W (bk, uk)
+
+            # 2. quadratice stage costs about nominal
+            cbark = self._cost_stage (bk, uk)
+            qrk, QRk = approx_jacobian_hessian (vbar,
+                    self._cost_stage_vector, 1e-6, cbark)
+            Qk = QRk[:NBEL,:NBEL]
+            Rk = QRk[NBEL:,NBEL:]
+            Pk = QRk[:NBEL,NBEL:]
+
+            qk = qrk[:NBEL]
+            rk = qrk[NBEL:]
+
+            # approximate Sk, sk
+            Sn = Qk + L[k].T.dot (Rk).dot (L[k]) \
+                + L[k].T.dot (Pk.T) + Pk.dot (L[k]) \
+                + (Fk + Gk.dot (L[k])).T.dot (Sk).dot (Fk + Gk.dot (L[k])) \
+                + np.sum ([(Fkii + Gkii.dot (L[k])).T.dot (Sk).dot (Fkii + Gkii.dot (L[k])) 
+                    for Fkii, Gkii in zip (Fki, Gki)])
+            ssn = cbark + ssk + (1./2)*np.sum ([ebarkii.T.dot (Sk).dot (ebarkii)
+                for ebarkii in ebarki])
+            Sk, ssk = Sn, ssn
+        return ssk
 
     def value_iteration (self):
         """
@@ -407,17 +446,29 @@ class Belief_ilqg (object):
             Lk, lk, Sk, sk, ssk = self._value_iteration_step (k, Sk, sk, ssk)
             L[k] = Lk
             l[k] = lk
-        print ssk
 
         # update nominal trajectory
         # backtracking linesearch
         # u = L (b - bbar) + eps l + ubar
-        bbar, ubar = self._compute_nominal (L, l, eps=1.)
+        eps = 1.
+        while True:
+            bbar, ubar = self._compute_nominal (L, l, eps=eps)
+
+            # compute expected cost
+            ssk = self._compute_approximate_cost (bbar, ubar, L, l)
+            if ssk < self.cost:
+                print 'expected cost:', ssk
+                self.cost = ssk
+                for li in l: 
+                    li *= eps
+                break
+            else:
+                eps /= 2.
+                print '', eps
+                if eps < 0.01:
+                    break
 
         self.bbar = bbar
         self.ubar = ubar
         self.L = L
         self.l = l
-
-        return None
-

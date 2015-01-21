@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 
 
 def scale_quadratic (x,y):
-    #return (x + 1.)**2.
-    return 1.
+    return (x - 10.)
+    #return 1.
 
 
 if __name__ == '__main__':
@@ -18,20 +18,25 @@ if __name__ == '__main__':
     P0 = 3.**2.*np.eye (2)
 
     # final state
-    xf = np.array ([5., 5.])
+    #xf = np.array ([5., 5.])
+    xf = np.array ([5., -3.])
 
     # initial control
-    nsteps = 25
-    #u0 = np.tile ((1./DELTAT)*((xf-x0)/(nsteps-1)).reshape (2,1), (1, nsteps-1))
-    u0 = np.zeros ((2,nsteps-1))
+    nsteps = 10
+    u0 = np.tile ((1./DELTAT)*((xf-x0)/(nsteps-1)).reshape (2,1), (1, nsteps-1))
+    #u0 = np.zeros ((2,nsteps-1))
 
     ilqg = Belief_ilqg (x0, P0, u0, xf, scale_quadratic)
     x,P = ilqg.nominal_belief ()
     x_initial = x.copy ()
 
     # value iteration
-    for i in xrange (2):
+    for i in xrange (5):
         ilqg.value_iteration ()
+        #x,P = ilqg.nominal_belief ()
+        #for Pi in P:
+        #    print Pi
+        #raw_input ('next...')
     x,P = ilqg.nominal_belief ()
 
     print ilqg.ubar
@@ -50,9 +55,10 @@ if __name__ == '__main__':
     ax_xy.grid ()
 
     # evaluate measurement model
-    axis = ax_xy.axis ()
-    X,Y = np.meshgrid (np.linspace (axis[0],axis[1]), 
-            np.linspace (axis[2], axis[3]))
+    #axis = ax_xy.axis ()
+    #X,Y = np.meshgrid (np.linspace (axis[0],axis[1]), 
+    #        np.linspace (axis[2], axis[3]))
+    #X,Y = np.meshgrid (np.linspace (0., 7.), np.linspace (-7., 0.))
     #Z = scale_quadratic (X,Y)
     #ax_xy.contourf (X, Y, Z, cmap=plt.cm.gray_r, 
     #        levels=np.linspace (Z.min (), Z.max (), 25))
